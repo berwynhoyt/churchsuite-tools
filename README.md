@@ -11,6 +11,8 @@ This is a tool that exports church service plans as beautiful, clean, `docx` fil
 
 You can [try it yourself here](https://serviceplans.ts.r.appspot.com/) if your church uses ChurchSuite.
 
+At that same link you can even create a hyperlink directly to your own church's service plans, and bookmark it or add it as a menu item in My ChurchSuite (to set it up go to `ChurchSuite->Menu->Settings->Profile->My ChurchSuite->Add external link`). You can only set up such links in My Churchsuite, as ChurchSuite itself does not yet let you add custom links.
+
 ### Features
 
 The exported docx service plans features:
