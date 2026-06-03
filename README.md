@@ -1,6 +1,8 @@
 # ChurchSuite Tools
 
-Tools include:
+Go to the [ToolShare Wiki](https://github.com/berwynhoyt/churchsuite-tools/wiki/ChurchSuite-ToolShare-%E2%80%90-Wiki) if you are looking for the wiki that lists third-party tools for ChurchSuite.
+
+However, if you're looking for **ChurchSuite Tools** by Berwyn Hoyt, they are here:
 
 1. [DocExport Tool (below)](#docexport-tool) – create beautiful church service plans as a Word document.
 2. [Churchsuite Python scripting](README-python.md) – my Python library for simple ChurchSuite scripting (used to create DocExport Tool).
