@@ -11,7 +11,7 @@ import churchsuite
 import config
 
 cs = churchsuite.Churchsuite(auth=[config.USER_CLIENT_ID, config.USER_CLIENT_SECRET])
-people = cs.get(f'{churchsuite.api}/addressbook/contacts', per_page=100, status='active')
+people = cs.get('addressbook/contacts', per_page=100, status='active')
 for p in people:
 	print(f"{p.first_name} {p.last_name}: {p.email}")
 ```
@@ -38,7 +38,7 @@ def home():
 @app.route('/people')
 @cs.login_required
 def people():
-    people = cs.get(f'{churchsuite.api}/addressbook/contacts', per_page=100, status='active')
+    people = cs.get('addressbook/contacts', per_page=100, status='active')
     return '<br>'.join(f"{p.first_name} {p.last_name}: {p.email}" for p in people)
 
 if __name__ == "__main__":

@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# Example minimal web app to display all the people in your database
+
 import os
 import secrets
 from flask import Flask
@@ -17,7 +20,7 @@ def home():
 @app.route('/people')
 @cs.login_required
 def people():
-    people = cs.get(f'{churchsuite.api}/addressbook/contacts', per_page=100, status='active')
+    people = cs.get('addressbook/contacts', per_page=100, status='active')
     return '<br>'.join(f"{p.first_name} {p.last_name}: {p.email}" for p in people)
 
 if __name__ == "__main__":

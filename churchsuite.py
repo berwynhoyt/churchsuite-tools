@@ -18,7 +18,7 @@ from flask import Flask, session, request, redirect, render_template_string
 from requests_oauthlib import OAuth2Session
 
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 class ChurchError(Exception): pass
 
@@ -68,7 +68,7 @@ class Churchsuite:
             Attempt to authorize using user auth (client_id, client_secret).
             If the authorization expires later, re-authorize using the same auth.
             If filename raw is supplied, store all json text received from the server into that file.
-            scope: is a sequence of scopes; at the time of writing ChurchSuite only supports 'full_access'
+            scope: is a list of scopes (default 'full_access') selected from: https://developer.churchsuite.com/auth#scopes
             lazy_auth: if True, delays authorization until it is first required
         """
         if not auth:
@@ -78,6 +78,8 @@ class Churchsuite:
         if raw is not None:
             # truncate file
             open(raw, 'w').close()
+        if not isinstance(scope, (list, tuple)):
+            raise Exception("Scope specified to Churchsuite must be a list or tuple")
         self.scope = scope
         self._access_token = None
         if not lazy_auth:
@@ -96,22 +98,72 @@ class Churchsuite:
 
     def authorize(self):
         """ Return access_token using api_enbaled_user authorization with the authorization credentials self.auth """
-        data = {'grant_type': 'client_credentials', 'scope': ','.join(self.scope)}
+        data = {'grant_type': 'client_credentials', 'scope': ' '.join(self.scope)}
         r = requests.post(self.token_url, auth=self.auth, json=data, headers={'Content-Type': 'application/json'})
         r.raise_for_status()
         self._token_expiry = time.time() + float(r.json().get('expires_in')) - 60
         self._access_token = r.json().get('access_token')
 
+    def _update_params(self, params=None, **kwargs):
+        """ Update params dict (default={}) with kwargs, appending '[]' to the names of keys whose values are lists/tuple """
+        if params is None:
+            params = {}
+        for k, v in kwargs.items():
+            if isinstance(v, (list, tuple)):
+                k = k + '[]'
+                v = list(v)
+            params[k] = v
+        return params
+
+    def get1(self, url, id=None, item=None, *, params=None, **kwargs):
+        """ Same as get() but fetch at most one page of a list result, not all pages
+            and instead of return data, returns an object that contains data and may contain a pagination field
+        """
+        url = joiner(url, id, item)
+        if not url.startswith(api):
+            url = joiner(api, url)
+        params = self._update_params(params, **kwargs)
+        r = requests.get(url, headers={'Authorization': f'Bearer {self.access_token}'}, params=params)
+        if trace_logging():
+            logging.debug(f"request: {dump_request(r.request).replace('\n', '\n|  ')}")
+        r.raise_for_status()
+        self.append_raw(json.dumps(r.json(), indent=4) + '\n')
+        # Convert json dict to SimpleNamespace (recursively for sub-objects)
+        object = json.loads(r.text, object_hook=lambda d: SimpleNamespace(**d))
+        formatted_response = f"GET {url} =>\n| {pprint.pformat(object).replace('\n', '\n| ')}"
+        if trace_logging():
+            logging.debug(formatted_response)
+        if not hasattr(object, 'data'):
+            raise Exception("No 'data' field found in response to {formatted_response}")
+        return object
+
     def get(self, url, id=None, item=None, *, params=None, **kwargs):
         """ Return 'data' field from ChurchSuite GET response as a SimpleNamespace, or list of SimpleNamespaces if the request returns a list.
+            If the result is a list and 'page' is not specified in params or kwargs, then repeatedly fetch all pages and return as a single list.
             If id or item are supplied, they are prefixed with '/' and appended as strings to the url.
             If params dict is supplied, it is updated with kwargs and then sent as json params to the url.
         """
-        url = joiner(url, id, item)
-        if params is None:
-            params = {}
-        params.update({k: str(v) for k, v in kwargs.items()})
-        r = requests.get(url, headers={'Authorization': f'Bearer {self.access_token}'}, params=params)
+        params = self._update_params(params, **kwargs)
+        params['per_page'] = params.get('per_page', 250)  # if per_page not specified, set it to ChurchSuite maximum
+        r = self.get1(url, id, item, params=params)
+        if not isinstance(r.data, list) or 'page' in params:
+            return r.data
+        page = 2
+        data = r.data
+        while r.pagination.next_page:
+            r = self.get1(url, id, item, params=params, page=page)
+            data += r.data
+            page += 1
+        return data
+
+    def post(self, url, *, params=None, **kwargs):
+        """ Return 'data' field from ChurchSuite POST request as a SimpleNamespace, or list of SimpleNamespaces if the request returns a list.
+            If params dict is supplied, it is updated with kwargs and then sent as json params to the url.
+        """
+        if not url.startswith(api):
+            url = joiner(api, url)
+        params = self._update_params(params, **kwargs)
+        r = requests.post(url, headers={'Authorization': f'Bearer {self.access_token}'}, json=params)
         if trace_logging():
             logging.debug(f"request: {dump_request(r.request).replace('\n', '\n|  ')}")
         r.raise_for_status()
@@ -162,7 +214,7 @@ class ChurchsuiteApp(Churchsuite):
             redirect_url: path of url that ChurchSuite will call back after login (must match the redirect_url set in ChurchSuite app config)
             identify_url: path of url used to internally to request client_id from user
             css: if not None, a css template for the identify page, to override the css in this file
-            scope: is a sequence of scopes; at the time of writing 'full_access' (default) is the only scope ChurchSuite supports
+            scope: is a list of scopes (default 'full_access') selected from: https://developer.churchsuite.com/auth#scopes
             Note: You can skip sending the user to the identify_url page by supplying client_id=xxx in the request URL.
                 Before redirecting to any URL decorated by @login_required, any client_id parameter will always be stripped
                 from the URL by the @login_required wrapper, regardless of whether a login was actually necessary.

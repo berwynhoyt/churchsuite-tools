@@ -22,7 +22,7 @@ from docx.shared import Mm, Pt
 from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml.shared import qn
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 # Regex of pattern used to identify start of red-highlighted text in service plans
 everyone_pattern = re.compile(r'(.* |^)((all|everyone|together|^people):)(.*)', re.IGNORECASE + re.DOTALL)
@@ -147,7 +147,7 @@ def plan2docx(cs, plan_id, title, stream=None, quiet=False):
     right_margin = section.page_width - section.left_margin - section.right_margin
 
     doc.add_heading(title, level=0)
-    items = cs.get(f'{churchsuite.api}/planning/plan_items', params={'plan_ids[]':plan_id})
+    items = cs.get('planning/plan_items', plan_ids=[plan_id])
     for item in items:
         logging.info(pprint.pformat(item))
         names = [f"{person.first_name} {person.last_name}" for person in item.people or []]
@@ -187,7 +187,7 @@ def plan2docx(cs, plan_id, title, stream=None, quiet=False):
 def plan2txt(cs, plan_id, title):
     """ Print service plan as txt. This is mainly for developer tinkering. """
     print(f"{title}:")
-    items = cs.get(f'{churchsuite.api}/planning/plan_items', params={'plan_ids[]':plan_id})
+    items = cs.get('planning/plan_items', plan_ids=[plan_id])
     for item in items:
         names = [f"{person.first_name} {person.last_name}" for person in item.people or []]
         if names:
@@ -216,7 +216,7 @@ def get_serviceplans(cs, starts_from=None, starts_before=None):
         kwargs['starts_before'] = str(starts_before)
     plans = []
     for status in ('published', 'draft'):
-        plans += cs.get(f'{churchsuite.api}/planning/plans', status=status, **kwargs)
+        plans += cs.get('planning/plans', status=status, **kwargs)
 
     # Add an 'hour' attribute to each plan which may be used to sort plans that fall on the same day
     for plan in plans:
@@ -290,7 +290,7 @@ if __name__ == "__main__":
         sys.exit()
 
     import config
-    cs = churchsuite.Churchsuite(auth=(config.USER_CLIENT_ID, config.USER_CLIENT_SECRET), raw=args.raw)
+    cs = churchsuite.Churchsuite(auth=(config.USER_CLIENT_ID, config.USER_CLIENT_SECRET), raw=args.raw, scope=['planning.read'])
 
     if args.list is not None:
         list_serviceplans(cs, max_age_days=args.list)
