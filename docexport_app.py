@@ -26,7 +26,7 @@ app.config['SESSION_COOKIE_SECURE'] = True  # require secure https (set to False
 app.config.from_pyfile('config_defaults.py', silent=True)  # update from version-tracked config defaults
 app.config.from_pyfile('config.py', silent=True)  # update from non-version-tracked config file
 
-cs = ChurchsuiteApp(app)
+cs = ChurchsuiteApp(app, scope=['planning.read'])
 
 @app.route('/docx')
 def home():
