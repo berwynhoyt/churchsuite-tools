@@ -49,7 +49,7 @@ def main():
     parser = argparse.ArgumentParser(description="Tag regular attenders so that the tags can be used by ChurchSuite filters.")
     parser.add_argument('frequency', help="Specify attendance frequency of a regular as n/m, meaning n of the past m weeks, e.g.: 4/8")
     parser.add_argument('--tag', type=str, nargs='?', const=True, help="Specify tag to assign to matching people (default='Regular'); if --tag omitted, do not tag")
-    parser.add_argument('--irregular', action='store_true', help="Find only people who do NOT match frequency (also changes the default tag to 'Irregular')")
+    parser.add_argument('--irregular', action='store_true', help="If --tag is specified, tag only people who do NOT match frequency (also default tag name to 'Irregular')")
     parser.add_argument('-v', '--verbose', action='count', default=0, help="Increase verbosity level (e.g., -vv).")
     parser.add_argument('--version', action='store_true', help="Print version number of this script and exit.")
     args = parser.parse_args()
