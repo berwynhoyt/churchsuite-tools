@@ -177,6 +177,24 @@ class Churchsuite:
             raise Exception("No 'data' field found in response to {formatted_response}")
         return object.data
 
+    def get_by_name(self, url, name):
+        """ Search for ChurchSuite list item by name at url and return its id or None if it doesn't exist.
+            Used, for example, by get_tag_id() to find tags by name:
+                `get_by_name('addressbook/tags', tag_name)`
+            Only returns exact matches, avoiding near matches from ChurchSuite's fuzzy search.
+        """
+        data = self.get(url, q=name)
+        if not data:
+            return None
+        for item in data:
+            if item.name == name:
+                return item.id
+        return None
+
+    def get_tag_id(self, tag_name):
+        """ Return tag_id or None if the tag does not exit """
+        return self.get_by_name('addressbook/tags', tag_name)
+
 
 # Test function to help a developer see the OAuth PKCE process flow in linear fashion
 def test_manual_oauth(client_id, redirect_url=None):
