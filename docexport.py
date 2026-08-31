@@ -221,6 +221,10 @@ def get_serviceplans(cs, starts_from=None, starts_before=None):
     # Add an 'hour' attribute to each plan which may be used to sort plans that fall on the same day
     for plan in plans:
         plan.hour = plan_hour(plan.name)
+    # Even though churchsuite returns sorted plans, we have to re-sort them
+    # a) to sort within days by the hour, now that we've added an hour attribute
+    # b) because we got draft and published plans in separate queries above
+    plans.sort(key=lambda plan: (plan.date, plan.hour))
     return plans
 
 def plan_hour(plan_name):

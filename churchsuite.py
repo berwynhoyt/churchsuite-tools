@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """ Library to access ChurchSuite data conveniently """
 
-import json
+import sys
 import os.path
+import json
 import logging
 import pprint
 import time
@@ -442,21 +443,25 @@ templates = SimpleNamespace(
 
 
 if __name__ == "__main__":
-    import secrets
+    if '--app' not in sys.argv:
+        import config
+        cs = Churchsuite(auth=(config.USER_CLIENT_ID, config.USER_CLIENT_SECRET))
+        print(f"Here is your churchsuite access token to use with curl for testing:\n{cs.access_token}\n")
+        print("Run with --app to run as a localhost server and test login")
+    else:
+        logging.basicConfig(level=logging.DEBUG, format=f'%(levelname)s: %(message)s')
 
-    logging.basicConfig(level=logging.DEBUG, format=f'%(levelname)s: %(message)s')
+        app = Flask(__name__)
+        app.config.from_pyfile('config_defaults.py', silent=True)  # update app config from version-tracked config defaults
+        app.config.from_pyfile('config.py', silent=True)  # update app config from non-version-tracked config file
+        app.config['SESSION_COOKIE_SECURE'] = False  # https not required for localhost debugging
+        os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' # allow debug using insecure http://localhost
+        cs = ChurchsuiteApp(app)
 
-    app = Flask(__name__)
-    app.config.from_pyfile('config_defaults.py', silent=True)  # update from version-tracked config defaults
-    app.config.from_pyfile('config.py', silent=True)  # update from non-version-tracked config file
-    app.config['SESSION_COOKIE_SECURE'] = False  # https not required for localhost debugging
-    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' # allow debug using insecure http://localhost
-    cs = ChurchsuiteApp(app)
+        @app.route('/')
+        @cs.login_required
+        def index():
+            return f"""<h1>Logged in!</h1><p style="overflow-wrap: break-word;">Access token is: {cs.access_token}."""
 
-    @app.route('/')
-    @cs.login_required
-    def index():
-        return f"""<h1>Logged in!</h1><p style="overflow-wrap: break-word;">Access token is: {cs.access_token}."""
-
-    port = int(os.environ.get("PORT", 8080))
-    app.run(debug=True, host="0.0.0.0", port=port)
+        port = int(os.environ.get("PORT", 8080))
+        app.run(debug=True, host="0.0.0.0", port=port)

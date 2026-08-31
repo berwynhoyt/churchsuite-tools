@@ -70,45 +70,10 @@ def append_defaults(l, defaults):
     return l
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        usage="%(prog)s [--help] [options] frequency",
-        description=
-            "Tag regular/irregular attenders, or highlight/email about new regulars and irregular members.\n"
-            "When ChurchSuite implements the add-to-flow API, this will support it.\n"
-            "In the meantime, it simply displays and emails them.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument('frequency', 
-        help="4/8 (for example) defines a regular as attending at least 4 of 8 weeks")
-    parser.add_argument('--tag', type=str, nargs='?', const='Regular', 
-        help="Tag regulars in ChurchSuite (default='Regular')")
-    parser.add_argument('--tag-irregulars', type=str, nargs='?', const='Irregular', 
-        help="Tag irregulars in ChurchSuite (default='Irregular')")
-    parser.add_argument('--regular-newcomers', type=lambda string: string.split(','), nargs='?', const=[],
-        help="Optionally specify tag names: member_tag[,flow_tag]. "
-            "Print/email a list of REGULARS NEWCOMERS if they are NOT in member_tag and are not already in a flow. "
-            "Default names for member_tag and flow_tag are: 'Current Parishioner' and 'In any flow'. "
-            "Membership in a flow cannot be tested directly by ChurchSuite API so is tested instead by membership in flow_tag "
-            "which you must define in ChurchSuite in advance as a smart tag that tests whether the contact is in any flow.")
-    parser.add_argument('--irregular-members', type=lambda string: string.split(','), nargs='?', const=[],
-        help="Optionally specify tag names: member_tag[,flow_tag]. "
-            "Print/email a list of IRREGULAR MEMBERS if they ARE in the member_tag and are not already in a flow. "
-            "Default names for member_tag and flow_tag are: 'Current Parishioner' and 'In any Flow'. "
-            "Membership in a flow cannot be tested directly by ChurchSuite API so is tested instead by membership in flow_tag "
-            "which you must define in ChurchSuite in advance as a smart tag that tests whether the contact is in any flow.")
-    parser.add_argument('-v', '--verbose', action='count', default=0, 
-        help="Increase verbosity level (e.g., -vv).")
-    parser.add_argument('--version', action='store_true', 
-        help="Print version number of this script and exit.")
-    args = parser.parse_args()
-
+def main(args):
     if args.version:
         print(__version__)
         sys.exit()
-
-    n, m = args.frequency.split('/')
-    args.frequency = int(n), int(m)
 
     # Set logging level based on -v flag
     log_level = logging.WARNING - 10*args.verbose
@@ -190,4 +155,39 @@ def main():
         print('email someone')
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        usage="%(prog)s [--help] [options] frequency",
+        description=
+            "Tag regular/irregular attenders, or highlight/email about new regulars and irregular members.\n"
+            "When ChurchSuite implements the add-to-flow API, this will support it.\n"
+            "In the meantime, it simply displays and emails them.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument('frequency', 
+        help="4/8 (for example) defines a regular as attending at least 4 of 8 weeks")
+    parser.add_argument('--tag', type=str, nargs='?', const='Regular', 
+        help="Tag regulars in ChurchSuite (default='Regular')")
+    parser.add_argument('--tag-irregulars', type=str, nargs='?', const='Irregular', 
+        help="Tag irregulars in ChurchSuite (default='Irregular')")
+    parser.add_argument('--regular-newcomers', type=lambda string: string.split(','), nargs='?', const=[],
+        help="Optionally specify tag names: member_tag[,flow_tag]. "
+            "Print/email a list of REGULARS NEWCOMERS if they are NOT in member_tag and are not already in a flow. "
+            "Default names for member_tag and flow_tag are: 'Current Parishioner' and 'In any flow'. "
+            "Membership in a flow cannot be tested directly by ChurchSuite API so is tested instead by membership in flow_tag "
+            "which you must define in ChurchSuite in advance as a smart tag that tests whether the contact is in any flow.")
+    parser.add_argument('--irregular-members', type=lambda string: string.split(','), nargs='?', const=[],
+        help="Optionally specify tag names: member_tag[,flow_tag]. "
+            "Print/email a list of IRREGULAR MEMBERS if they ARE in the member_tag and are not already in a flow. "
+            "Default names for member_tag and flow_tag are: 'Current Parishioner' and 'In any Flow'. "
+            "Membership in a flow cannot be tested directly by ChurchSuite API so is tested instead by membership in flow_tag "
+            "which you must define in ChurchSuite in advance as a smart tag that tests whether the contact is in any flow.")
+    parser.add_argument('-v', '--verbose', action='count', default=0, 
+        help="Increase verbosity level (e.g., -vv).")
+    parser.add_argument('--version', action='store_true', 
+        help="Print version number of this script and exit.")
+    args = parser.parse_args()
+
+    n, m = args.frequency.split('/')
+    args.frequency = int(n), int(m)
+
+    main(args)
