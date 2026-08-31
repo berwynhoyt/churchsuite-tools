@@ -19,7 +19,7 @@ from flask import Flask, session, request, redirect, render_template_string
 from requests_oauthlib import OAuth2Session
 
 
-__version__ = '1.1.0'
+__version__ = '1.1.0'  # NOTE: remember to update CHANGELOG.churchsuite.md
 
 class ChurchError(Exception): pass
 

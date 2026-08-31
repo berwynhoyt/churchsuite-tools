@@ -22,7 +22,7 @@ from docx.shared import Mm, Pt
 from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml.shared import qn
 
-__version__ = '1.1.0'
+__version__ = '1.2.0'  # NOTE: remember to update CHANGELOG.docexport.md
 
 # Regex of pattern used to identify start of red-highlighted text in service plans
 everyone_pattern = re.compile(r'(.* |^)((all|everyone|together|^people):)(.*)', re.IGNORECASE + re.DOTALL)
