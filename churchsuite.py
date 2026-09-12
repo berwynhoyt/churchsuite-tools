@@ -178,11 +178,13 @@ class Churchsuite:
             raise Exception("No 'data' field found in response to {formatted_response}")
         return object.data
 
-    def get_by_name(self, url, name):
+    def get_by_name(self, url, name, case_sensitive=False):
         """ Search for ChurchSuite list item by name at url and return its id or None if it doesn't exist.
             Used, for example, by get_tag_id() to find tags by name:
                 `get_by_name('addressbook/tags', tag_name)`
-            Only returns exact matches, avoiding near matches from ChurchSuite's fuzzy search.
+            If case_sensitive=False (default) then a case-matching tag id will be returned if it exists,
+                otherwise a case-insensitive match will be returned if one exists.
+            Only returns id of exact matches, avoiding near matches from ChurchSuite's fuzzy search.
         """
         data = self.get(url, q=name)
         if not data:
@@ -190,6 +192,10 @@ class Churchsuite:
         for item in data:
             if item.name == name:
                 return item.id
+        if not case_sensitive:
+            for item in data:
+                if item.name.lower() == name.lower():
+                    return item.id
         return None
 
     def get_tag_id(self, tag_name):
