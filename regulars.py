@@ -18,6 +18,7 @@ scope = ['attendance.read', 'addressbook.read', 'addressbook.write']
 
 # Exceptions
 class NoTag(Exception): pass
+class InvalidStatus(Exception): pass
 
 __version__ = '1.0.0'
 
@@ -48,17 +49,21 @@ def attendance_stats(cs, records):
 
 _tag_cache = {}  # cache of (tag_name,status) which have had their members fetched
 
-def tag_members(cs, tag_name, status='active'):
-    """ Return a dict of (default active) tag members, indexed by person_id; each value set to a SimpleNamespace of the person's details.
-        Cache results in case the same (tag_name,status) combination is requested later.
+def tag_members(cs, tag_name, status='active', function=None):
+    """ Return a dict of (default active) tag members, indexed by their person_id; each dict value is set to a SimpleNamespace of the person's details.
+        Cache results in case the same (tag_name, status) combination is requested later.
         Raise NoTag exception if tag doesn't exist.
+        Raise InvalidStatus if status is not one of the options below.
     """
+    status_options = ('active', 'archived', 'pending')
+    if status not in status_options:
+        raise InvalidStatus(f"Parameter 'status' must be one of: {status_options}")
     key = (tag_name, status)
     if key in _tag_cache:
         return _tag_cache[key]
     tag_id = cs.get_tag_id(tag_name)
     if tag_id is None:
-        raise NoTag(f"Specified tag '{tag_name}' does not exist")
+        raise NoTag(f"Tag '{tag_name}' {f'specified for {function} ' if function else ''}does not exist")
     people = cs.get('addressbook/contacts', tag_ids=[tag_id], status=status)
     people = {person.id: person for person in people}
     _tag_cache[key] = people
@@ -122,37 +127,37 @@ def main(args):
                 cs.post('addressbook/tag_resources', person=dict(type='addressbook_contact', id=person.id), tag_id=tag_id)
             print('\n')
 
+    regular_newcomers, regular_newcomers_inflow, regular_newcomers_noflow = [], [], []
     if args.regular_newcomers is not None:
-        print('\nNewcomers who are regular (>={args.frequency} weeks) so should be added to a newcomer flow:')
-        regular_newcomers, regular_newcomers_inflow, regular_newcomers_noflow = [], [], []
-        append_defaults(args.regular_newcomers, defaults=['Current Parishioner', 'In any flow'])
+        print(f'\nNewcomers who are regular (at least {args.frequency[0]}/{args.frequency[1]} weeks) who should be added to a newcomer flow:')
+        append_defaults(args.regular_newcomers, defaults=['Current Parishioner', 'In membership flow'])
         member_tag, flow_tag = args.regular_newcomers
-        members = tag_members(cs, member_tag)
-        flow_members = tag_members(cs, flow_tag)
+        members = tag_members(cs, member_tag, function='regular_newcomers')
+        flow_members = tag_members(cs, flow_tag, function='regular_newcomers')
         # identify regulars if they are NOT members
         regular_newcomers = [person for person in regulars if person.id not in members]
         regular_newcomers_inflow = [person for person in regular_newcomers if person.id in flow_members]
         regular_newcomers_noflow = [person for person in regular_newcomers if person.id not in flow_members]
-        print('  * Need a flow:       ', ', '.join(p.first_name+' '+p.last_name for p in regular_newcomers_noflow) or 'nobody')
-        print('  * Already in a flow: ', ', '.join(p.first_name+' '+p.last_name for p in regular_newcomers_inflow) or 'nobody')
+        print(f'  * {len(regular_newcomers_noflow)} need a flow: ', ', '.join(p.first_name+' '+p.last_name for p in regular_newcomers_noflow) or 'nobody')
+        print(f"  * {len(regular_newcomers_inflow)} already in a flow so don't need to be added.")
 
+    irregular_members, irregular_members_inflow, irregular_members_noflow = [], [], []
     if args.irregular_members is not None:
-        print(f'\nMembers who are irregular (<{args.frequency} weeks) so should be added to a followup flow:')
-        irregular_members, irregular_members_inflow, irregular_members_noflow = [], [], []
-        append_defaults(args.irregular_members, defaults=['Current Parishioner', 'In any flow'])
+        print(f'\nMembers who are irregular (under {args.frequency[0]}/{args.frequency[1]} weeks) who should be added to a followup flow:')
+        append_defaults(args.irregular_members, defaults=['Current Parishioner', 'In membership flow'])
         member_tag, flow_tag = args.irregular_members
-        members = tag_members(cs, member_tag)
-        flow_members = tag_members(cs, flow_tag)
+        members = tag_members(cs, member_tag, function='irregular_members')
+        flow_members = tag_members(cs, flow_tag, function='irregular_members')
         # identify irregulars who ARE members
         irregular_members = [person for person in irregulars if person.id in members]
         irregular_members_inflow = [person for person in irregular_members if person.id in flow_members]
         irregular_members_noflow = [person for person in irregular_members if person.id not in flow_members]
-        print('  * Need a flow:       ', ', '.join(p.first_name+' '+p.last_name for p in irregular_members_noflow) or 'nobody')
-        print('  * Already in a flow: ', ', '.join(p.first_name+' '+p.last_name for p in irregular_members_inflow) or 'nobody')
+        print(f'  * {len(irregular_members_noflow)} need a flow: ', ', '.join(p.first_name+' '+p.last_name for p in irregular_members_noflow) or 'nobody')
+        print(f"  * {len(irregular_members_inflow)} already in a flow don't need to be added.")
 
     # There is currently no ChurchSuite API call to add to a flow, so email someone if --email supplied
-    if args.regular_newcomers is not None or args.irregular_members is not None:
-        print('email someone')
+    if regular_newcomers_noflow or irregular_members_noflow and args.email:
+        print(f"Emailing {args.email} these flow addition requirements")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -170,17 +175,17 @@ if __name__ == "__main__":
     parser.add_argument('--tag-irregulars', type=str, nargs='?', const='Irregular', 
         help="Tag irregulars in ChurchSuite (default='Irregular')")
     parser.add_argument('--regular-newcomers', type=lambda string: string.split(','), nargs='?', const=[],
-        help="Optionally specify tag names: member_tag[,flow_tag]. "
+        help='Optionally specify tag names: "member_tag"[,"flow_tag"]. '
             "Print/email a list of REGULARS NEWCOMERS if they are NOT in member_tag and are not already in a flow. "
-            "Default names for member_tag and flow_tag are: 'Current Parishioner' and 'In any flow'. "
+            "Default names for member_tag and flow_tag are: 'Current Parishioner' and 'In membership flow'. "
             "Membership in a flow cannot be tested directly by ChurchSuite API so is tested instead by membership in flow_tag "
-            "which you must define in ChurchSuite in advance as a smart tag that tests whether the contact is in any flow.")
+            "which you must define in ChurchSuite in advance as a smart tag that tests whether the contact is in the specified flow tag.")
     parser.add_argument('--irregular-members', type=lambda string: string.split(','), nargs='?', const=[],
-        help="Optionally specify tag names: member_tag[,flow_tag]. "
+        help='Optionally specify tag names: "member_tag"[,"flow_tag"]. '
             "Print/email a list of IRREGULAR MEMBERS if they ARE in the member_tag and are not already in a flow. "
-            "Default names for member_tag and flow_tag are: 'Current Parishioner' and 'In any Flow'. "
+            "Default names for member_tag and flow_tag are: 'Current Parishioner' and 'In membership flow'. "
             "Membership in a flow cannot be tested directly by ChurchSuite API so is tested instead by membership in flow_tag "
-            "which you must define in ChurchSuite in advance as a smart tag that tests whether the contact is in any flow.")
+            "which you must define in ChurchSuite in advance as a smart tag that tests whether the contact is in the specified flow tag.")
     parser.add_argument('-v', '--verbose', action='count', default=0, 
         help="Increase verbosity level (e.g., -vv).")
     parser.add_argument('--version', action='store_true', 
@@ -190,4 +195,7 @@ if __name__ == "__main__":
     n, m = args.frequency.split('/')
     args.frequency = int(n), int(m)
 
-    main(args)
+    try:
+        main(args)
+    except NoTag as e:
+        print(f"Error: {e}", file=sys.stderr)
