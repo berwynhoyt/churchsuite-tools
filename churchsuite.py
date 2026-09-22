@@ -198,9 +198,13 @@ class Churchsuite:
                     return item.id
         return None
 
-    def get_tag_id(self, tag_name):
-        """ Return tag_id or None if the tag does not exit """
+    def get_tag_id(self, tag_name, case_sensitive=False):
+        """ Return tag_id or None if the tag does not exist. """
         return self.get_by_name('addressbook/tags', tag_name)
+
+    def get_flow_id(self, flow_name, case_sensitive=False):
+        """ Return active flow_id or None if the flow does not exist. """
+        return self.get_by_name('addressbook/flows', flow_name)
 
 
 # Test function to help a developer see the OAuth PKCE process flow in linear fashion
