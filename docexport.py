@@ -69,7 +69,7 @@ def set_language(doc, language):
     rpr_default = styles_element.xpath('./w:docDefaults/w:rPrDefault/w:rPr')[0]
     # Access or create the w:lang element and set the language value
     lang_default = rpr_default.xpath('w:lang')[0]
-    lang_default.set(qn('w:val'), language) # Example: set to German (Germany)
+    lang_default.set(qn('w:val'), language) # Example: 'de-DE' for German (Germany)
 
 
 def item_sections(item):
@@ -90,9 +90,9 @@ def set_page_size(section, size):
     size = size.lower()
     if size != 'letter': # do nothing if it's letter because that's the docx default
         if size == 'a4': size = "210,297"
-    width, height = size.split(',')
-    section.page_height = Mm(int(height))
-    section.page_width = Mm(int(width))
+        width, height = size.split(',')
+        section.page_height = Mm(int(height))
+        section.page_width = Mm(int(width))
     section.left_margin = Mm(22)
     section.right_margin = Mm(22)
     section.top_margin = Mm(22)
@@ -208,6 +208,7 @@ def get_serviceplans(cs, starts_from=None, starts_before=None):
         starts_from = today
     if starts_from == 'today': starts_from = today
     if starts_before == 'today': starts_before = today
+    if isinstance(starts_from, str): starts_from = date.fromisoformat(starts_from)
     kwargs = {}
     if starts_from:
         # make start date inclusive of that date
@@ -229,7 +230,7 @@ def get_serviceplans(cs, starts_from=None, starts_before=None):
 
 def plan_hour(plan_name):
     """ Return best guess of hour of day (0-23) of this plan based on clues like 10am in the plan name. Use for sorting.
-        If there is no specific time specified, look for clues: morning=8; afternoon=3; evening=6.
+        If there is no specific time specified, look for clues: morning=8; afternoon=15; evening=18.
         Otherwise return 12 (noon) if there is no indication.
         Returns a floating point number so that, for example, '10:30' returns 10.5
     """
@@ -240,15 +241,16 @@ def plan_hour(plan_name):
         if 'morning' in plan_name.lower():
             return 8.0
         if 'afternoon' in plan_name.lower():
-            return 3.0
+            return 15.0
         if 'evening' in plan_name.lower():
-            return 6.0
+            return 18.0
         return 12
     group = match.group
     hour = float(group(1))
     if group(2):
-        hour += float(group(2))/60
+        hour += float(group(2)[1:])/60
     if group(3):
+        hour %= 12  # 12am is midnight and 12pm is noon
         if group(3).lower().startswith('p'):
             hour += 12
     else:
@@ -256,13 +258,19 @@ def plan_hour(plan_name):
             hour += 12
     return hour
 
+def plan_title(plan, show_date=True, show_draft=True):
+    """ Return plan name, optionally prefixed by its date and suffixed by ' (draft)' if it is a draft """
+    title = f"{plan.date} {plan.name}" if show_date else plan.name
+    if show_draft and plan.status == 'draft':
+        title += ' (draft)'
+    return title
+
 def list_serviceplans(cs, max_age_days=400):
-    """ Return service plans younger than max_age_days sorted by date """
+    """ Print service plans younger than max_age_days sorted by date """
     today = date.today()
     plans = get_serviceplans(cs, starts_from=date.today()-timedelta(days=max_age_days))
     for plan in plans:
-        title = f"{plan.date} {plan.name}{' (draft)' if plan.status=='draft' else ''}"
-        print(title)
+        print(plan_title(plan))
 
 
 # Set defaults that may be used instead of command-line parameters when this module is imported (e.g. by docexport_app.py)
@@ -304,7 +312,7 @@ if __name__ == "__main__":
     if not plans:
         sys.exit(f"There are no plans in ChurchSuite starting from ({args.starts_from if args.starts_from or args.starts_before else 'today'}) and before ({args.starts_before})")
     for plan in plans:
-        title = f"{plan.date} {plan.name}{' (draft)' if plan.status=='draft' else ''}"
+        title = plan_title(plan)
         if args.txt:
             plan2txt(cs, plan.id, title)
         else:

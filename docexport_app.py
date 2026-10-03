@@ -2,10 +2,8 @@
 """ Run a web app on port $PORT (default 8080) to fetch the upcoming service plans from ChurchSuite and export into docx format """
 
 import os
-import sys
 import io
 import bisect
-import secrets
 from datetime import date, timedelta
 from types import SimpleNamespace
 from collections import defaultdict
@@ -13,8 +11,7 @@ from operator import attrgetter
 
 import jinja2
 import flask
-from flask import Flask, session, request, url_for, redirect, render_template_string
-from requests_oauthlib import OAuth2Session
+from flask import Flask, request, url_for, redirect, render_template_string
 
 from churchsuite import ChurchsuiteApp
 import docexport
@@ -41,7 +38,7 @@ def version():
 @cs.login_required
 def plans():
     """ List download link for each service plan up to query parameter 'max_age_days' (default 400), sorted by date """
-    max_age_days = request.args.get('max_age_days', 400)
+    max_age_days = request.args.get('max_age_days', 400, type=int)
     today = date.today()
     plans = docexport.get_serviceplans(cs, starts_from=date.today()-timedelta(days=max_age_days))
     # separate plans by date
@@ -49,7 +46,7 @@ def plans():
     upcoming = defaultdict(list)
     for plan in reversed(plans):
         old = date.fromisoformat(plan.date) < today
-        plan.title = f"{plan.name}{' (draft)' if (plan.status=='draft' and not old) else ''}"
+        plan.title = docexport.plan_title(plan, show_date=False, show_draft=not old)
         plan.filename = f"{plan.date} {plan.title}"
         # add plans to each date and keep in sorted order using bisect and the plan.hour attribute
         if date.fromisoformat(plan.date) >= today:
@@ -103,7 +100,7 @@ templates = SimpleNamespace(
                     l100.17,69.451c2.518,1.753,5.459,2.631,8.414,2.631c2.355,0,4.696-0.553,6.857-1.676c4.855-2.549,7.909-7.6,7.909-13.092V175.989z
                     "/>
             </svg>
-        DocExport</h1></a>
+        DocExport</a></h1>
     """,
 
     footer = """</body></html>""",
