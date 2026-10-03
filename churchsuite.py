@@ -105,10 +105,11 @@ class Churchsuite:
         self._token_expiry = time.time() + float(r.json().get('expires_in')) - 60
         self._access_token = r.json().get('access_token')
 
-    def _update_params(self, params=None, **kwargs):
-        """ Update params dict (default={}) with kwargs, appending '[]' to the names of keys whose values are lists/tuple """
+    def _update_urlparams(self, params=None, **kwargs):
+        """ Return a copy of params dict (default={}) but updated with kwargs, appending '[]' to the names of keys whose values are lists/tuple """
         if params is None:
             params = {}
+        params = params.copy() # make sure not to clobber the input dict
         for k, v in kwargs.items():
             if isinstance(v, (list, tuple)):
                 k = k + '[]'
@@ -116,18 +117,25 @@ class Churchsuite:
             params[k] = v
         return params
 
-    def get1(self, url, id=None, item=None, *, params=None, **kwargs):
-        """ Same as get() but fetch at most one page of a list result, not all pages
-            and instead of return data, returns an object that contains data and may contain a pagination field
+    def request(self, url, id=None, item=None, *, urlparams=None, reqparams=None, request=requests.get):
+        """ Performs a basic request like GET, fetching at most one page of a list result (not all pages like self.get does)
+            and instead of return data, returns an object that contains data and may contain a pagination field.
+            url: the network address to talk to
+            id: if supplied, is prefixed with '/' and appended as a string to the url.
+            item: if supplied, is prefixed with '/' and appended as a string to the url (after any /id)
+            urlparams: are converted to url parameters: usual for GET, DELETE.
+            reqparams: are converted to json data sent in the request body: usual for POST, PUT, PATCH.
+            request: specifies the type of request: requests.get, requests.post, etc. to match http type GET, POST, etc.
         """
         url = joiner(url, id, item)
         if not url.startswith(api):
             url = joiner(api, url)
-        params = self._update_params(params, **kwargs)
-        r = requests.get(url, headers={'Authorization': f'Bearer {self.access_token}'}, params=params)
+        r = request(url, headers={'Authorization': f'Bearer {self.access_token}'}, params=urlparams, json=reqparams)
         if trace_logging():
             logging.debug(f"request: {dump_request(r.request).replace('\n', '\n|  ')}")
         r.raise_for_status()
+        if not r.content:
+            return SimpleNamespace(data=None)  # e.g. DELETE returns 204 No Content so make it look like no data=None
         self.append_raw(json.dumps(r.json(), indent=4) + '\n')
         # Convert json dict to SimpleNamespace (recursively for sub-objects)
         object = json.loads(r.text, object_hook=lambda d: SimpleNamespace(**d))
@@ -135,48 +143,73 @@ class Churchsuite:
         if trace_logging():
             logging.debug(formatted_response)
         if not hasattr(object, 'data'):
-            raise Exception("No 'data' field found in response to {formatted_response}")
+            raise Exception(f"No 'data' field found in response to {formatted_response}")
         return object
 
     def get(self, url, id=None, item=None, *, params=None, **kwargs):
         """ Return 'data' field from ChurchSuite GET response as a SimpleNamespace, or list of SimpleNamespaces if the request returns a list.
             If the result is a list and 'page' is not specified in params or kwargs, then repeatedly fetch all pages and return as a single list.
             If id or item are supplied, they are prefixed with '/' and appended as strings to the url.
-            If params dict is supplied, it is updated with kwargs and then sent as json params to the url.
+            If params dict is supplied, it is sent, merged with kwargs, as url params to the url.
         """
-        params = self._update_params(params, **kwargs)
+        params = self._update_urlparams(params, **kwargs)
         params['per_page'] = params.get('per_page', 250)  # if per_page not specified, set it to ChurchSuite maximum
-        r = self.get1(url, id, item, params=params)
+        r = self.request(url, id, item, urlparams=params)
         if not isinstance(r.data, list) or 'page' in params:
             return r.data
         page = 2
         data = r.data
         while r.pagination.next_page:
-            r = self.get1(url, id, item, params=params, page=page)
+            params = self._update_urlparams(params, page=page)
+            r = self.request(url, id, item, urlparams=params)
             data += r.data
             page += 1
         return data
 
+    def delete(self, url, id=None, item=None, *, params=None, **kwargs):
+        """ Return 'data' field from ChurchSuite DELETE request as a SimpleNamespace, or list of SimpleNamespaces if the request returns a list.
+            If id or item are supplied, they are prefixed with '/' and appended as strings to the url.
+            If params dict is supplied, it is sent, merged with kwargs, as url params to the url.
+        """
+        params = self._update_urlparams(params, **kwargs)
+        r = self.request(url, id, item, urlparams=params, request=requests.delete)
+        return r.data
+
     def post(self, url, *, params=None, **kwargs):
         """ Return 'data' field from ChurchSuite POST request as a SimpleNamespace, or list of SimpleNamespaces if the request returns a list.
-            If params dict is supplied, it is updated with kwargs and then sent as json params to the url.
+            If params dict is supplied, it is sent, merged with kwargs, as request body json params to the url.
         """
-        if not url.startswith(api):
-            url = joiner(api, url)
-        params = self._update_params(params, **kwargs)
-        r = requests.post(url, headers={'Authorization': f'Bearer {self.access_token}'}, json=params)
-        if trace_logging():
-            logging.debug(f"request: {dump_request(r.request).replace('\n', '\n|  ')}")
-        r.raise_for_status()
-        self.append_raw(json.dumps(r.json(), indent=4) + '\n')
-        # Convert json dict to SimpleNamespace (recursively for sub-objects)
-        object = json.loads(r.text, object_hook=lambda d: SimpleNamespace(**d))
-        formatted_response = f"GET {url} =>\n| {pprint.pformat(object).replace('\n', '\n| ')}"
-        if trace_logging():
-            logging.debug(formatted_response)
-        if not hasattr(object, 'data'):
-            raise Exception("No 'data' field found in response to {formatted_response}")
-        return object.data
+        params = params.copy() if params else {}
+        params.update(kwargs)
+        r = self.request(url, reqparams=params, request=requests.post)
+        return r.data
+
+    def put(self, url, *, params=None, **kwargs):
+        """ Return 'data' field from ChurchSuite PUT request as a SimpleNamespace, or list of SimpleNamespaces if the request returns a list.
+            If params dict is supplied, it is sent, merged with kwargs, as request body json params to the url.
+        """
+        params = params.copy() if params else {}
+        params.update(kwargs)
+        r = self.request(url, reqparams=params, request=requests.put)
+        return r.data
+
+    def id_by_name(self, items, name, case_sensitive=False):
+        """ Search through items (list of SimpleNamespaces) for an item that has attribute name matching name and return its id attribute or None if it doesn't exist.
+            Used, for example, by get_tag_id() to find tags by name
+            If case_sensitive=False (default) then a case-matching tag id will be returned first, if it exists,
+                otherwise a case-insensitive match will be returned if one exists.
+            Only returns the id exact (possibly case-insensitive) matches, avoiding near matches captured by ChurchSuite's fuzzy search.
+        """
+        if not items:
+            return None
+        for item in items:  # First look for case-sensitive matches
+            if item.name == name:
+                return item.id
+        if not case_sensitive:  # Next scan for case-insensitive matches
+            for item in items:
+                if item.name.lower() == name.lower():
+                    return item.id
+        return None
 
     def get_by_name(self, url, name, case_sensitive=False):
         """ Search for ChurchSuite list item by name at url and return its id or None if it doesn't exist.
@@ -184,28 +217,28 @@ class Churchsuite:
                 `get_by_name('addressbook/tags', tag_name)`
             If case_sensitive=False (default) then a case-matching tag id will be returned if it exists,
                 otherwise a case-insensitive match will be returned if one exists.
-            Only returns id of exact matches, avoiding near matches from ChurchSuite's fuzzy search.
+            Only returns id of exact (possibly case-insensitive) matches, avoiding near matches from ChurchSuite's fuzzy search.
         """
-        data = self.get(url, q=name)
-        if not data:
-            return None
-        for item in data:
-            if item.name == name:
-                return item.id
-        if not case_sensitive:
-            for item in data:
-                if item.name.lower() == name.lower():
-                    return item.id
-        return None
+        params = self._update_urlparams({}, q=name)
+        items = self.get(url, params=params)
+        return self.id_by_name(items, name, case_sensitive=case_sensitive)
 
-    def get_tag_id(self, tag_name, case_sensitive=False):
+    def get_tag_id(self, tag_name, module='addressbook', case_sensitive=False):
         """ Return tag_id or None if the tag does not exist. """
-        return self.get_by_name('addressbook/tags', tag_name)
+        return self.get_by_name(f'{module}/tags', tag_name, case_sensitive=case_sensitive)
 
-    def get_flow_id(self, flow_name, case_sensitive=False):
+    def get_flow_id(self, flow_name, module='addressbook', case_sensitive=False):
         """ Return active flow_id or None if the flow does not exist. """
-        return self.get_by_name('addressbook/flows', flow_name)
+        return self.get_by_name(f'{module}/flows', flow_name, case_sensitive=case_sensitive)
 
+    def get_stages(self, flow_id, module='addressbook'):
+        """ Get a list of stages in specified flow """
+        return self.get(f'{module}/flow_stages', flow_ids=[flow_id])
+
+    def get_stage_id(self, stage_name, flow_id, module='addressbook', case_sensitive=False):
+        """ Given flow_id, return the stage_id matching the flow's stage_name or None if the stage does not exist. """
+        stages = self.get_stages(flow_id, module=module)
+        return self.id_by_name(stages, stage_name, case_sensitive=case_sensitive)
 
 # Test function to help a developer see the OAuth PKCE process flow in linear fashion
 def test_manual_oauth(client_id, redirect_url=None):
