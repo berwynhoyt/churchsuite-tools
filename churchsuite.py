@@ -39,6 +39,15 @@ def joiner(*args):
     """ Join multiple args to the end of a url, separating them with '/' """
     return '/'.join(str(arg) for arg in args if arg is not None)
 
+def raise_for_status(r):
+    """ Like r.raise_for_status() but append the response body to the error, since it usually explains 4xx errors """
+    try:
+        r.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        if r.text:
+            e.args = (f"{e} -- {r.text[:1000]}",)
+        raise
+
 def trace_logging():
     """ Detect whether trace-level logging is enabled with a log_level even more verbose than DEBUG (-vvv) """
     return logging.getLogger(__name__).getEffectiveLevel() < logging.DEBUG
@@ -63,6 +72,7 @@ class Churchsuite:
     token_url = "https://login.churchsuite.com/oauth2/token"
     auth_url = "https://login.churchsuite.com/oauth2/authorize"
     scope = 'full_access'
+    timeout = 30  # seconds to wait for the server to respond before giving up
 
     def __init__(self, auth=None, *, raw=None, scope=('full_access',), lazy_auth=False):
         """ Create ChurchSuite instance for access to ChurchSuite data.
@@ -100,8 +110,8 @@ class Churchsuite:
     def authorize(self):
         """ Return access_token using api_enbaled_user authorization with the authorization credentials self.auth """
         data = {'grant_type': 'client_credentials', 'scope': ' '.join(self.scope)}
-        r = requests.post(self.token_url, auth=self.auth, json=data, headers={'Content-Type': 'application/json'})
-        r.raise_for_status()
+        r = requests.post(self.token_url, auth=self.auth, json=data, headers={'Content-Type': 'application/json'}, timeout=self.timeout)
+        raise_for_status(r)
         self._token_expiry = time.time() + float(r.json().get('expires_in')) - 60
         self._access_token = r.json().get('access_token')
 
@@ -130,20 +140,21 @@ class Churchsuite:
         url = joiner(url, id, item)
         if not url.startswith(api):
             url = joiner(api, url)
-        r = request(url, headers={'Authorization': f'Bearer {self.access_token}'}, params=urlparams, json=reqparams)
+        r = request(url, headers={'Authorization': f'Bearer {self.access_token}'}, params=urlparams, json=reqparams, timeout=self.timeout)
         if trace_logging():
             logging.debug(f"request: {dump_request(r.request).replace('\n', '\n|  ')}")
-        r.raise_for_status()
+        raise_for_status(r)
         if not r.content:
             return SimpleNamespace(data=None)  # e.g. DELETE returns 204 No Content so make it look like no data=None
         self.append_raw(json.dumps(r.json(), indent=4) + '\n')
         # Convert json dict to SimpleNamespace (recursively for sub-objects)
         object = json.loads(r.text, object_hook=lambda d: SimpleNamespace(**d))
-        formatted_response = f"GET {url} =>\n| {pprint.pformat(object).replace('\n', '\n| ')}"
+        def formatted_response():
+            return f"{r.request.method} {url} =>\n| {pprint.pformat(object).replace('\n', '\n| ')}"
         if trace_logging():
-            logging.debug(formatted_response)
+            logging.debug(formatted_response())
         if not hasattr(object, 'data'):
-            raise Exception(f"No 'data' field found in response to {formatted_response}")
+            raise Exception(f"No 'data' field found in response to {formatted_response()}")
         return object
 
     def get(self, url, id=None, item=None, *, params=None, **kwargs):
@@ -290,7 +301,6 @@ class ChurchsuiteApp(Churchsuite):
         self.redirect_url = redirect_url
         self.identify_url = identify_url
         self.login_urls = (login_url, redirect_url)
-        templates.docx_css = css or templates.docx_css
         self.scope = scope
 
         app.before_request(self._log_request)
@@ -301,7 +311,9 @@ class ChurchsuiteApp(Churchsuite):
         app.add_url_rule(identify_url, view_func=self._identify)
 
         # Allow jinja to load the string templates defined in this file
-        string_loader = jinja2.DictLoader(vars(templates))
+        # Override css in a copy of templates so that other apps keep the default css
+        app_templates = vars(templates) | ({'docx_css': css} if css else {})
+        string_loader = jinja2.DictLoader(app_templates)
         app.jinja_env.loader = jinja2.ChoiceLoader([string_loader, app.jinja_env.loader])
 
     @property
@@ -341,13 +353,16 @@ class ChurchsuiteApp(Churchsuite):
 
     def _callback(self):
         """ OAuth callback route that receives the authorization access_token from ChurchSuite """
-        if request.args.get('state') != session.pop('oauth_state'):
-            return "Invalid state parameter", 400
+        # Use pop defaults because the session may have expired or been lost, e.g. a stale browser tab
+        state = session.pop('oauth_state', None)
+        code_verifier = session.pop('code_verifier', None)
+        if not state or request.args.get('state') != state:
+            return f'Login session expired or invalid. Please <a href="{self.login_url}">log in again</a>.', 400
 
         callback_url = urljoin(request.url_root, self.redirect_url)
         client_id = self.client_id or session.get('client_id')
         oauth = OAuth2Session(client_id, redirect_uri=callback_url)
-        json = oauth.fetch_token(Churchsuite.token_url, authorization_response=request.url, code_verifier=session.pop('code_verifier'))
+        json = oauth.fetch_token(Churchsuite.token_url, authorization_response=request.url, code_verifier=code_verifier)
         session['access_token'] = json.get('access_token')
         session['token_expiry'] = time.time() + float(json.get('expires_in')) - 60
         return redirect(session.pop('next_url', '/'))
@@ -403,7 +418,7 @@ templates = SimpleNamespace(
                 <path fill-rule="evenodd" clip-rule="evenodd" d="M228.908 214.968C228.908 219.213 229.34 223.518 229.648 227.823C229.648 229.582 229.155 230.188 227.367 230.127C199.059 229.573 170.865 226.447 143.143 220.789C118.879 215.374 95.0393 208.261 71.8058 199.505C69.8945 198.838 69.8944 197.868 70.4494 196.231C80.4929 165.162 98.649 137.228 123.104 115.219C143.8 96.3195 168.379 82.0099 195.182 73.2572C197.093 72.5902 197.956 73.2572 198.573 74.8338C202.642 86.9614 207.266 99.0889 210.904 111.702C217.631 135.433 222.617 159.609 225.825 184.043C227.243 194.29 228.045 204.659 229.093 214.968H228.908Z" fill="#FDFEFF"/>
                 </svg>
                 Identification
-            </h1></a>
+            </a></h1>
     """,
 
     docx_footer = """</body></html>""",
@@ -470,13 +485,14 @@ templates = SimpleNamespace(
 
             // Update automatic client_id link as user types
             const input = document.querySelector('#client_id')
+            const nextUrl = {{ next_url|tojson }}  // tojson makes a safe JS string literal without HTML-escaping & to &amp;
             input.onchange = input.onkeyup = function(input) {
-                if ('{{ next_url }}') {
-                    const next_url = new URL('{{ next_url }}')
-                    next_url.searchParams.set('client_id', encodeURIComponent(form.client_id.value))
+                if (nextUrl) {
+                    const next_url = new URL(nextUrl)
+                    next_url.searchParams.set('client_id', form.client_id.value)  // searchParams.set() does its own encoding
                     autolink.href = autolink.textContent = next_url
                 }
-                document.querySelector('#linksection').style.display = (form.client_id.value && '{{ next_url }}')? 'block': 'none'
+                document.querySelector('#linksection').style.display = (form.client_id.value && nextUrl)? 'block': 'none'
             };
             input.onchange()
         </script>
